@@ -25,11 +25,9 @@ docker-build:
 
 .PHONY: docker-publish
 docker-publish: $(PUBLISH_DOCKER_ARCHS)
-	docker push "$(DOCKER_REPO)/$(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG)"
-
-.PHONY: docker-tag-latest
-docker-tag-latest:
 	docker tag "$(DOCKER_REPO)/$(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG)" "$(DOCKER_REPO)/$(DOCKER_IMAGE_NAME):latest"
+	docker push "$(DOCKER_REPO)/$(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG)"
+	docker push "$(DOCKER_REPO)/$(DOCKER_IMAGE_NAME):latest"
 
 vendor:
 	export GO111MODULE=on && go mod init && go mod vendor

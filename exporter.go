@@ -23,6 +23,20 @@ type mqttExporter struct {
 }
 
 func newMQTTExporter() *mqttExporter {
+	// create an exporter
+	c := &mqttExporter{
+		versionDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(progname, "build", "info"),
+			"Build info of this instance",
+			nil,
+			prometheus.Labels{"version": version}),
+		connectDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(progname, "mqtt", "connected"),
+			"Is the exporter connected to mqtt broker",
+			nil,
+			nil),
+	}
+
 	// create a MQTT client
 	options := mqtt.NewClientOptions()
 	log.Infof("Connecting to %v", *brokerAddress)
@@ -36,31 +50,18 @@ func newMQTTExporter() *mqttExporter {
 	if *clientID != "" {
 		options.SetClientID(*clientID)
 	}
-	m := mqtt.NewClient(options)
-	if token := m.Connect(); token.Wait() && token.Error() != nil {
+	handler := c.receiveMessage()
+	options.SetDefaultPublishHandler(handler)
+	c.client = mqtt.NewClient(options)
+	if token := c.client.Connect(); token.Wait() && token.Error() != nil {
 		log.Fatal(token.Error())
 	}
-
-	// create an exporter
-	c := &mqttExporter{
-		client: m,
-		versionDesc: prometheus.NewDesc(
-			prometheus.BuildFQName(progname, "build", "info"),
-			"Build info of this instance",
-			nil,
-			prometheus.Labels{"version": version}),
-		connectDesc: prometheus.NewDesc(
-			prometheus.BuildFQName(progname, "mqtt", "connected"),
-			"Is the exporter connected to mqtt broker",
-			nil,
-			nil),
-	}
+	log.Infof("Connected to %v", *brokerAddress)
+	c.client.Subscribe(*topic, 2, nil)
 
 	c.metrics = make(map[string]*prometheus.GaugeVec)
 	c.counterMetrics = make(map[string]*prometheus.CounterVec)
 	c.metricsLabels = make(map[string][]string)
-
-	m.Subscribe(*topic, 2, c.receiveMessage())
 
 	return c
 }
@@ -107,8 +108,10 @@ func (e *mqttExporter) receiveMessage() func(mqtt.Client, mqtt.Message) {
 		mutex.Lock()
 		defer mutex.Unlock()
 		t := m.Topic()
+		log.Debugf("Recieved message at topic: %v", m.Topic())
 		t = strings.TrimPrefix(m.Topic(), *prefix)
 		t = strings.TrimPrefix(t, "/")
+		t = strings.TrimSuffix(t, "/")
 		parts := strings.Split(t, "/")
 		if len(parts)%2 == 0 {
 			log.Warnf("Invalid topic: %s: odd number of levels, ignoring", t)

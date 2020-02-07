@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/prometheus/client_golang/prometheus"
@@ -50,14 +51,28 @@ func newMQTTExporter() *mqttExporter {
 	if *clientID != "" {
 		options.SetClientID(*clientID)
 	}
-	handler := c.receiveMessage()
-	options.SetDefaultPublishHandler(handler)
+	options.SetConnectRetry(true)
+	options.MaxReconnectInterval = 30 * time.Second
+	options.ConnectRetryInterval = 30 * time.Second
+	options.SetDefaultPublishHandler(c.receiveMessage())
+
+	options.OnReconnecting = func(client mqtt.Client, options *mqtt.ClientOptions) {
+		log.Infof("Reconnecting to %v", *brokerAddress)
+	}
+
+	options.OnConnectionLost = func(client mqtt.Client, reason error) {
+		log.Infof("Connection to %v lost, reason: %v", *brokerAddress, reason)
+	}
+
+	options.OnConnect = func(client mqtt.Client) {
+		log.Infof("Connected to %v", *brokerAddress)
+		c.client.Subscribe(*topic, 2, nil)
+	}
+
 	c.client = mqtt.NewClient(options)
 	if token := c.client.Connect(); token.Wait() && token.Error() != nil {
 		log.Fatal(token.Error())
 	}
-	log.Infof("Connected to %v", *brokerAddress)
-	c.client.Subscribe(*topic, 2, nil)
 
 	c.metrics = make(map[string]*prometheus.GaugeVec)
 	c.counterMetrics = make(map[string]*prometheus.CounterVec)
